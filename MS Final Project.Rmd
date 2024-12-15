@@ -1,0 +1,1156 @@
+---
+title: "Prediction of Metabolic Syndrome in Adults"
+author: "Yue Yu, Jiayi Cui"
+date: "2024-12-01"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Data Cleaning
+
+### Preliminary Adjustment with Visualization
+```{r}
+data.raw <- read.csv("/Users/yuyue/Desktop/ECE225A/Project/Metabolic  Syndrome.csv")
+data <- data.frame(data.raw)
+
+data$MetabolicSyndrome <- as.factor(data$MetabolicSyndrome)
+plot(data$MetabolicSyndrome)
+# As the difference between two categories is not severe, we don't need to worry
+# too much about the effect of uneven sample distribution in modeling. 
+
+# Convert categorical attributes to factors
+data$Sex <- as.factor(data$Sex)
+data$Marital <- ifelse(data$Marital=="","Unknown",data$Marital)
+data$Marital <- as.factor(data$Marital)
+data$Race <- as.factor(data$Race)
+data$Albuminuria <- as.factor(data$Albuminuria)
+# Albuminuria is treated as categorical attribute with levels 0,1,2.
+
+plot(data.raw$Triglycerides)
+abline(h=1000,col="red")
+data$Triglycerides <- ifelse(data$Triglycerides > 1000, median(data$Triglycerides, na.rm = TRUE), data$Triglycerides)
+# For Triglycerides, two values above 1000 are replaced with the median. 
+
+data2 <- data
+data3 <- data
+data4 <- data
+data5 <- data
+
+summary(data)
+# Income, WaistCirc, BMI have NA values. 
+# Categorical attribute Marital has 208 missing values, which are marked as Unknown. 
+
+par(mfrow=c(1,2))
+boxplot(data$Age)
+hist(data$Age)
+boxplot(data$Income)
+hist(data$Income)
+boxplot(data$WaistCirc)
+hist(data$WaistCirc)
+boxplot(data$BMI)
+hist(data$BMI)
+boxplot(data$UrAlbCr)
+hist(data$UrAlbCr)
+# Normal urine albumin-creatinie level is below 30 mg/g. 
+boxplot(data$UricAcid)
+hist(data$UricAcid)
+# Normal uric acid level is between 3.5 to 7.2 mg/dL. 
+boxplot(data$BloodGlucose)
+hist(data$BloodGlucose)
+# Normal blood glucose level is between 70 to 100 mg/dL. 
+boxplot(data$HDL)
+hist(data$HDL)
+# Normal cholesterol level is below 200 mg/dL. Above 240 mg/dL is considered high. 
+boxplot(data$Triglycerides)
+hist(data$Triglycerides)
+# Normal triglycerides level is below 150 mg/dL. Between 200 to 500 mg/dL is 
+# considered high. 
+par(mfrow=c(1,1))
+# Many numerical attributes are skewed to the right. Some of them have extremely 
+# high values. 
+
+par(mfrow=c(2,2))
+plot(data$Sex,main="sex")
+plot(data$Marital,cex.names=0.55,main="marital")
+plot(data$Race,cex.names=0.7,main="race")
+plot(data$Albuminuria,main="albuminuria")
+par(mfrow=c(1,1))
+
+```
+
+### Cleaning NA with Median
+```{r}
+data2$WaistCirc <- ifelse(is.na(data2$WaistCirc), median(data2$WaistCirc, na.rm = TRUE), data$WaistCirc)
+
+data2$Income <- ifelse(is.na(data2$Income), median(data2$Income, na.rm = TRUE), data$Income)
+
+data2$BMI <- ifelse(is.na(data2$BMI), median(data$BMI, na.rm = TRUE), data2$BMI)
+
+summary(data2)
+```
+
+### Cleaning NA with Mean
+```{r}
+data3$WaistCirc <- ifelse(is.na(data3$WaistCirc), mean(data3$WaistCirc, na.rm = TRUE), data3$WaistCirc)
+
+data3$Income <- ifelse(is.na(data3$Income), mean(data3$Income, na.rm = TRUE), data3$Income)
+
+data3$BMI <- ifelse(is.na(data3$BMI), mean(data3$BMI, na.rm = TRUE), data3$BMI)
+```
+
+### Cleaning NA by Omitting
+```{r}
+data4 <- na.omit(data4)
+```
+
+### Cleaning NA with Linear Regression
+```{r}
+lr_modelInc <- lm(Income ~.-seqn, data = data4)
+lr_modelWais <- lm(WaistCirc ~.-seqn, data = data4)
+lr_modelBMI <- lm(BMI~.-seqn, data = data4)
+# Use data without NA to get the predictive model. 
+
+# Classification models are tried to predict unknown Marital, but the result 
+# looks not reliable as false rate is very high. The missing information of 
+# Marital may be deleted later for simplicity in modeling. 
+
+summary(lr_modelInc)
+summary(lr_modelWais)
+summary(lr_modelBMI)
+# Check out the linear regression model generated to predict NA value. 
+# The r-square of Income is low. For WaistCirc and BMI, r-squares are high. 
+
+data5$Income <- ifelse(is.na(data5$Income), predict(lr_modelInc), data5$Income)
+data5$WaistCirc <- ifelse(is.na(data5$WaistCirc), predict(lr_modelWais), data5$WaistCirc)
+data5$BMI <- ifelse(is.na(data5$BMI), predict(lr_modelBMI), data5$BMI)
+```
+
+# Data Analysis
+
+### Binary Target Attribute Distribution
+```{r}
+# Percentage of No MetSyn
+nrow(data2[data2$MetabolicSyndrome=='No MetSyn',])/nrow(data2)
+# Percentage of MetSyn
+nrow(data2[data2$MetabolicSyndrome=='MetSyn',])/nrow(data2)
+# 34% positives and 66% negatives
+# More negatives than positives, but still considerable percentage of positives.
+
+dataP <- subset(data,MetabolicSyndrome=='MetSyn')
+dataN <- subset(data,MetabolicSyndrome=='No MetSyn')
+
+library(ggplot2)
+ggplot(data, aes(x="", y=MetabolicSyndrome, fill=MetabolicSyndrome)) + geom_bar(stat="identity", width=1) + coord_polar("y", start=0)
+```
+
+### Age and Metabolic Syndrome Relationship
+```{r}
+# Age distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=Age, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="Age") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# Age mean value is marked by vertical lines
+ggplot(data, aes(x=Age)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(Age ~ MetabolicSyndrome, data, mean), aes(xintercept = Age), linetype = "dashed", color = "red") + theme_minimal()
+
+library(dplyr)
+# Percentage of Metabolic syndrome in different small groups sharing same age 
+percentage_data <- data %>% group_by(Age) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = Age, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by Age', x = 'Age', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having higher age. 
+
+# ANOVA test
+summary(aov(Age~MetabolicSyndrome,data))
+# The age mean difference is significant, which suggests that age distribution is 
+# different in groups with and without Metabolic syndrome. As positive group has
+# higher mean age, metabolic syndrome is positively correlated with age. 
+```
+
+### Income and Metabolic Syndrome Relationship
+```{r}
+# Income distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=Income, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="Income") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# Specific income distribution
+table(data$Income)
+
+# Income mean value is marked by vertical lines
+ggplot(data, aes(x=Income)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(Income ~ MetabolicSyndrome, data, mean), aes(xintercept = Income), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing same income 
+percentage_data <- data4 %>% group_by(Income) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = Income, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by Income', x = 'Income', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having lower income. 
+
+# ANOVA test
+summary(aov(Income~MetabolicSyndrome,data))
+# The income mean difference is significant, which suggests that income distribution is 
+# different in groups with and without Metabolic syndrome. As positive group has
+# lower mean income, metabolic syndrome is negatively correlated with income. 
+```
+
+### WaistCirc and Metabolic Syndrome Relationship
+```{r}
+# WaistCirc distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=WaistCirc, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="WaistCirc") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# WaistCirc mean value is marked by vertical lines
+ggplot(data, aes(x=WaistCirc)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(WaistCirc ~ MetabolicSyndrome, data, mean), aes(xintercept = WaistCirc), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing similar WaistCirc 
+data.temp <- data4
+data.temp$WaistCirc_interval <- cut(data.temp$WaistCirc, breaks = seq(0, max(data.temp$WaistCirc) + 20, by = 20), include.lowest = TRUE)
+percentage_data <- data.temp %>% group_by(WaistCirc_interval) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = WaistCirc_interval, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by WaistCirc', x = 'WaistCirc', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having larger WaistCirc. 
+# Note: Only a few instances have very high WaistCirc and they're almost all positive. 
+
+# ANOVA test
+summary(aov(WaistCirc~MetabolicSyndrome,data))
+# The WaistCirc mean difference is significant, which suggests that WaistCirc distribution is 
+# different in groups with and without Metabolic syndrome. As positive group has
+# larger mean WaistCirc, metabolic syndrome is positively correlated with WaistCirc. 
+```
+
+### BMI and Metabolic Syndrome Relationship
+```{r}
+# BMI distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=BMI, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="BMI") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# BMI mean value is marked by vertical lines
+ggplot(data, aes(x=BMI)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(BMI ~ MetabolicSyndrome, data, mean), aes(xintercept = BMI), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing similar BMI 
+data.temp <- data4
+data.temp$BMI_interval <- cut(data.temp$BMI, breaks = seq(0, max(data.temp$BMI) + 10, by = 10), include.lowest = TRUE)
+percentage_data <- data.temp %>% group_by(BMI_interval) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = BMI_interval, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by BMI', x = 'BMI', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having larger BMI. 
+# Note: Only a few instances have very high BMI and they're almost all positive. 
+
+# ANOVA test
+summary(aov(BMI~MetabolicSyndrome,data))
+# The BMI mean difference is significant, which suggests that BMI distribution is 
+# different in groups with and without Metabolic syndrome. As positive group has
+# larger mean BMI, metabolic syndrome is positively correlated with BMI. 
+```
+
+### UrAlbCr (Urine Albumin-Creatinine Level) and Metabolic Syndrome Relationship
+```{r}
+# UrAlbCr distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=UrAlbCr, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="UrAlbCr") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# UrAlbCr mean value is marked by vertical lines
+ggplot(data, aes(x=UrAlbCr)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(UrAlbCr ~ MetabolicSyndrome, data, mean), aes(xintercept = UrAlbCr), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing similar UrAlbCr 
+data.temp <- data
+data.temp$UrAlbCr_interval <- cut(data.temp$UrAlbCr, breaks = seq(0, max(data.temp$UrAlbCr) + 1000, by = 1000), include.lowest = TRUE)
+percentage_data <- data.temp %>% group_by(UrAlbCr_interval) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = UrAlbCr_interval, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by UrAlbCr', x = 'UrAlbCr', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having higher UrAlbCr. 
+# Note: Only a few instances have high UrAlbCr and more of them are positive, which 
+# contributes to the higher UrAlbCr mean value in positive group. 
+
+# ANOVA test
+summary(aov(UrAlbCr~MetabolicSyndrome,data))
+# The UrAlbCr mean difference is significant, which suggests that UrAlbCr distribution is 
+# different in groups with and without Metabolic syndrome. As positive group has
+# larger mean UrAlbCr, metabolic syndrome is positively correlated with UrAlbCr. 
+# Note: Differing from other attributes, the normality assumption of ANOVA test 
+# is severely violated, which may weaken the power of test. However, the correlation 
+# probably holds because it can be observed that for those outliers, positive 
+# group tends to have more instances and higher value. 
+
+# Supplement: UrAlbCr distribution for values below 100
+data.temp <- subset(data,UrAlbCr<100)
+ggplot(data.temp, aes(x=UrAlbCr)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(UrAlbCr ~ MetabolicSyndrome, data.temp, mean), aes(xintercept = UrAlbCr), linetype = "dashed", color = "red") + theme_minimal()
+```
+
+### UricAcid and Metabolic Syndrome Relationship
+```{r}
+# UricAcid distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=UricAcid, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="UricAcid") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# UricAcid mean value is marked by vertical lines
+ggplot(data, aes(x=UricAcid)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(UricAcid ~ MetabolicSyndrome, data, mean), aes(xintercept = UricAcid), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing similar UricAcid 
+data.temp <- data
+data.temp$UricAcid_interval <- cut(data.temp$UricAcid, breaks = seq(0, max(data.temp$UricAcid) + 1, by = 1), include.lowest = TRUE)
+percentage_data <- data.temp %>% group_by(UricAcid_interval) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = UricAcid_interval, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by UricAcid', x = 'UricAcid', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having higher UricAcid. 
+
+# ANOVA test
+summary(aov(UricAcid~MetabolicSyndrome,data))
+# The UricAcid mean difference is significant, which suggests that UricAcid distribution is 
+# different in groups with and without Metabolic syndrome. As positive group has
+# higher mean UricAcid, metabolic syndrome is positively correlated with UricAcid. 
+```
+
+### BloodGlucose and Metabolic Syndrome Relationship
+```{r}
+# BloodGlucose distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=BloodGlucose, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="BloodGlucose") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# BloodGlucose mean value is marked by vertical lines
+ggplot(data, aes(x=BloodGlucose)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(BloodGlucose ~ MetabolicSyndrome, data, mean), aes(xintercept = BloodGlucose), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing similar BloodGlucose 
+data.temp <- data
+data.temp$BloodGlucose_interval <- cut(data.temp$BloodGlucose, breaks = seq(0, max(data.temp$BloodGlucose) + 50, by = 50), include.lowest = TRUE)
+percentage_data <- data.temp %>% group_by(BloodGlucose_interval) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = BloodGlucose_interval, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by BloodGlucose', x = 'BloodGlucose', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having higher BloodGlucose. 
+
+# ANOVA test
+summary(aov(BloodGlucose~MetabolicSyndrome,data))
+# The BloodGlucose mean difference is significant, which suggests that BloodGlucose distribution 
+# is different in groups with and without Metabolic syndrome. As positive group has
+# higher mean BloodGlucose, metabolic syndrome is positively correlated with BloodGlucose. 
+```
+
+### HDL (Cholesterol Level) and Metabolic Syndrome Relationship
+```{r}
+# HDL distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=HDL, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="HDL") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# HDL mean value is marked by vertical lines
+ggplot(data, aes(x=HDL)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(HDL ~ MetabolicSyndrome, data, mean), aes(xintercept = HDL), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing similar HDL 
+data.temp <- data
+data.temp$HDL_interval <- cut(data.temp$HDL, breaks = seq(0, max(data.temp$HDL) + 40, by = 40), include.lowest = TRUE)
+percentage_data <- data.temp %>% group_by(HDL_interval) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = HDL_interval, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by HDL', x = 'HDL', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having lower HDL. 
+
+# ANOVA test
+summary(aov(HDL~MetabolicSyndrome,data))
+# The HDL mean difference is significant, which suggests that HDL distribution 
+# is different in groups with and without Metabolic syndrome. As positive group has
+# lower mean HDL, metabolic syndrome is negatively correlated with HDL. 
+```
+
+### Triglycerides and Metabolic Syndrome Relationship
+```{r}
+# Triglycerides distribution in groups with and without Metabolic syndrome
+qplot(data=data, y=Triglycerides, x=MetabolicSyndrome, geom="blank", na.rm = TRUE, color=MetabolicSyndrome) + coord_flip() + scale_y_continuous() + labs(x=NULL,y="Triglycerides") + theme_light(base_size = 15) + theme(legend.position="none") + geom_boxplot(color="gray60", outlier.alpha = .5, na.rm=TRUE) + geom_jitter(width = .2, alpha = .2, na.rm=TRUE)
+
+# Triglycerides mean value is marked by vertical lines
+ggplot(data, aes(x=Triglycerides)) + geom_histogram(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + geom_vline(data = aggregate(Triglycerides ~ MetabolicSyndrome, data, mean), aes(xintercept = Triglycerides), linetype = "dashed", color = "red") + theme_minimal()
+
+# Percentage of Metabolic syndrome in different small groups sharing similar Triglycerides 
+data.temp <- data
+data.temp$Triglycerides_interval <- cut(data.temp$Triglycerides, breaks = seq(0, max(data.temp$Triglycerides) + 200, by = 200), include.lowest = TRUE)
+percentage_data <- data.temp %>% group_by(Triglycerides_interval) %>% summarise(percentage_MetSyn = mean(MetabolicSyndrome == 'MetSyn') * 100)
+ggplot(percentage_data, aes(x = Triglycerides_interval, y = percentage_MetSyn)) + geom_bar(stat = 'identity', fill = 'skyblue', color = 'black') + labs(title = 'Percentage of MetSyn by Triglycerides', x = 'Triglycerides', y = 'Percentage of MetSyn') + theme_minimal()
+# The positive rates are higher in groups having higher Triglycerides. 
+# Note: Only a few instances have very high Triglycerides and they're almost all positive. 
+
+# ANOVA test
+summary(aov(Triglycerides~MetabolicSyndrome,data))
+# The Triglycerides mean difference is significant, which suggests that Triglycerides 
+# distribution is different in groups with and without Metabolic syndrome. As positive group has
+# higher mean Triglycerides, metabolic syndrome is positively correlated with Triglycerides. 
+```
+
+### Sex and Metabolic Syndrome Relationship
+```{r}
+ggplot(data, aes(x=Sex)) + geom_bar(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + theme_minimal()
+# The shape of sex distribution looks similar in groups with and without metabolic 
+# syndrome. 
+
+ggplot(data, aes(x = Sex, fill = MetabolicSyndrome)) + geom_bar(position = "stack") + labs(title = "Distribution of Males and Females in MetabolicSyndrome", x = "Sex", y = "Count") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# In overall frequency distribution, the number of male and female is roughly 
+# the same. 
+
+data.temp <- data %>% group_by(Sex) %>% mutate(Count = n()) %>% group_by(MetabolicSyndrome, Sex) %>% summarise(NormalizedCount = n() / first(Count)) %>% ungroup()
+ggplot(data.temp, aes(x = Sex, y = NormalizedCount, fill = MetabolicSyndrome)) + geom_bar(position = "fill", stat = "identity") + labs(title = "Proportion of Males and Females in MetabolicSyndrome", x = "Sex", y = "Proportion") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# Male and female groups have similar rate of metabolic syndrome. 
+
+# Chi-square test
+table(data$MetabolicSyndrome,data$Sex)
+chisq.test(table(data$MetabolicSyndrome,data$Sex))
+# As the deviation from expected distribution under random assumption is not significant, 
+# sex is not correlated with metabolic syndrome. 
+```
+
+### Marital and Metabolic Syndrome Relationship
+```{r}
+ggplot(data, aes(x=Marital)) + geom_bar(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + theme_minimal()
+# The shape of marital distribution looks slightly different in groups with and 
+# without metabolic syndrome. The proportion of Single tends to shrink more 
+# than others in group with metabolic syndrome. 
+
+ggplot(data, aes(x = Marital, fill = MetabolicSyndrome)) + geom_bar(position = "stack") + labs(title = "Distribution of Marital in MetabolicSyndrome", x = "Marital", y = "Count") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# In overall frequency distribution, there are much more Married than other status, 
+# and Single is the second largest category. 
+
+data.temp <- data %>% group_by(Marital) %>% mutate(Count = n()) %>% group_by(MetabolicSyndrome, Marital) %>% summarise(NormalizedCount = n() / first(Count)) %>% ungroup()
+ggplot(data.temp, aes(x = Marital, y = NormalizedCount, fill = MetabolicSyndrome)) + geom_bar(position = "fill", stat = "identity") + labs(title = "Proportion of Marital in MetabolicSyndrome", x = "Marital", y = "Proportion") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# The rate of metabolic syndrome doesn't differ severely across marital status. 
+# Single has the lowest rate, and windowed has the highest rate.
+
+# Chi-square test
+table(data$MetabolicSyndrome,data$Marital)
+chisq.test(table(data$MetabolicSyndrome,data$Marital))
+# As the deviation from expected distribution under random assumption is significant, 
+# marital is correlated with metabolic syndrome. 
+```
+
+### Race and Metabolic Syndrome Relationship
+```{r}
+ggplot(data, aes(x=Race)) + geom_bar(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + theme_minimal()
+# The shape of race distribution looks slightly different in groups with and 
+# without metabolic syndrome. The proportion of Asian tends to shrink more 
+# than others in group with metabolic syndrome. 
+
+ggplot(data, aes(x = Race, fill = MetabolicSyndrome)) + geom_bar(position = "stack") + labs(title = "Distribution of Race in MetabolicSyndrome", x = "Race", y = "Count") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# In overall frequency distribution, there are much more White than other race, 
+# and Black is the second largest category. There are much less Other than others. 
+
+data.temp <- data %>% group_by(Race) %>% mutate(Count = n()) %>% group_by(MetabolicSyndrome, Race) %>% summarise(NormalizedCount = n() / first(Count)) %>% ungroup()
+ggplot(data.temp, aes(x = Race, y = NormalizedCount, fill = MetabolicSyndrome)) + geom_bar(position = "fill", stat = "identity") + labs(title = "Proportion of Race in MetabolicSyndrome", x = "Race", y = "Proportion") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# The rate of metabolic syndrome doesn't differ severely across different race. 
+# Asian has the lowest rate, and MexAmerican has the highest rate.
+
+# Chi-square test
+table(data$MetabolicSyndrome,data$Race)
+chisq.test(table(data$MetabolicSyndrome,data$Race))
+# As the deviation from expected distribution under random assumption is significant, 
+# race is correlated with metabolic syndrome. 
+```
+
+### Albuminuria and Metabolic Syndrome Relationship
+```{r}
+ggplot(data, aes(x=Albuminuria)) + geom_bar(fill = "skyblue", color = "black") + facet_wrap(~MetabolicSyndrome, ncol = 1) + theme_minimal()
+# The shape of Albuminuria distribution looks quite different in groups with and 
+# without metabolic syndrome. The proportion of level 0 shrinks much more 
+# than other levels in group with metabolic syndrome. 
+
+ggplot(data, aes(x = Albuminuria, fill = MetabolicSyndrome)) + geom_bar(position = "stack") + labs(title = "Distribution of Albuminuria in MetabolicSyndrome", x = "Albuminuria", y = "Count") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# In overall frequency distribution, there are much more level 0 than other levels,  
+# which means the majority of instances don't have Albuminuria.  
+
+data.temp <- data %>% group_by(Albuminuria) %>% mutate(Count = n()) %>% group_by(MetabolicSyndrome, Albuminuria) %>% summarise(NormalizedCount = n() / first(Count)) %>% ungroup()
+ggplot(data.temp, aes(x = Albuminuria, y = NormalizedCount, fill = MetabolicSyndrome)) + geom_bar(position = "fill", stat = "identity") + labs(title = "Proportion of Albuminuria in MetabolicSyndrome", x = "Albuminuria", y = "Proportion") + scale_fill_manual(values = c("No MetSyn" = "lightblue", "MetSyn" = "pink")) + theme_minimal()
+# The rate of metabolic syndrome differ a lot across different Albuminuria levels. 
+# Level 0 has the lowest rate, and level 2 has the highest rate.
+
+# Chi-square test
+table(data$MetabolicSyndrome,data$Albuminuria)
+chisq.test(table(data$MetabolicSyndrome,data$Albuminuria))
+# As the deviation from expected distribution under random assumption is significant, 
+# Albuminuria is correlated with metabolic syndrome, and more severe Albuminuria 
+# is associated with higher positive rate. 
+```
+
+### Numerical Predictor Correlation
+```{r}
+data.temp <- data4[,c("Age","Income","WaistCirc","BMI","UrAlbCr","UricAcid","BloodGlucose","HDL","Triglycerides")]
+cor(data.temp)
+# WaistCirc and BMI are strongly correlated with correlation 0.907. 
+plot(data.temp$WaistCirc,data.temp$BMI)
+
+# Other moderate correlation 
+plot(data.temp$Triglycerides,data.temp$HDL)
+plot(data.temp$WaistCirc,data.temp$HDL)
+plot(data.temp$WaistCirc,data.temp$UricAcid)
+# As most pairs of numerical predictors are slightly to moderately correlated, predictor 
+# correlation is not a serious problem for this data. 
+```
+
+### Categorical Predictor Relationship 
+```{r}
+ggplot(data, aes(x = Marital, fill = Sex)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Marital", y = "Count") + scale_fill_brewer(palette = "Set3")
+ggplot(data, aes(x = Sex, fill = Marital)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Sex", y = "Count") + scale_fill_brewer(palette = "Set3")
+
+ggplot(data, aes(x = Race, fill = Sex)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Race", y = "Count") + scale_fill_brewer(palette = "Set3")
+ggplot(data, aes(x = Sex, fill = Race)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Sex", y = "Count") + scale_fill_brewer(palette = "Set3")
+
+ggplot(data, aes(x = Albuminuria, fill = Sex)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Albuminuria", y = "Count") + scale_fill_brewer(palette = "Set3")
+ggplot(data, aes(x = Sex, fill = Albuminuria)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Sex", y = "Count") + scale_fill_brewer(palette = "Set3")
+
+ggplot(data, aes(x = Marital, fill = Race)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Marital", y = "Count") + scale_fill_brewer(palette = "Set3")
+ggplot(data, aes(x = Race, fill = Marital)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Race", y = "Count") + scale_fill_brewer(palette = "Set3")
+
+ggplot(data, aes(x = Marital, fill = Albuminuria)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Marital", y = "Count") + scale_fill_brewer(palette = "Set3")
+ggplot(data, aes(x = Albuminuria, fill = Marital)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Albuminuria", y = "Count") + scale_fill_brewer(palette = "Set3")
+
+ggplot(data, aes(x = Race, fill = Albuminuria)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Race", y = "Count") + scale_fill_brewer(palette = "Set3")
+ggplot(data, aes(x = Albuminuria, fill = Race)) + geom_bar(stat = "count") + theme_minimal() + labs(title = "", x = "Albuminuria", y = "Count") + scale_fill_brewer(palette = "Set3")
+```
+
+### Data Splitting
+```{r}
+data2$MetabolicSyndrome <- ifelse(data2$MetabolicSyndrome=="MetSyn",1,0)
+data5$MetabolicSyndrome <- ifelse(data5$MetabolicSyndrome=="MetSyn",1,0)
+# "MetSyn" is converted to 1, "No MetSyn" is converted to 0
+set.seed(12345)
+n <- length(data2$MetabolicSyndrome)
+test.index <- sample(1:n,n/4,replace = F)
+data2.test <- subset(data2[test.index,])
+data2.train <- subset(data2[-test.index,])
+data5.test <- subset(data5[test.index,])
+data5.train <- subset(data5[-test.index,])
+# 75% of data goes to training set, 25% of data goes to testing set
+```
+
+# Modeling
+
+### Logistic Regression
+```{r}
+# Median cleaned data
+# Full model
+log.model <- glm(MetabolicSyndrome~.-seqn,data2.train,family=binomial)
+summary(log.model)
+log.pred <- predict(log.model,newdata=data2.test,type="response")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=ifelse(log.pred>0.5,1,0))
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.8416667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.2535211
+
+# Reduced model: insignificant predictors removed
+log.model <- glm(MetabolicSyndrome~.-seqn-Race-Marital-Albuminuria-Income-BMI-UrAlbCr,data2.train,family=binomial)
+summary(log.model)
+log.pred <- predict(log.model,newdata=data2.test,type="response")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=ifelse(log.pred>0.5,1,0))
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.84
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.2676056
+
+# Full model
+# Adjust decision boundary to 0.4 to lower false negative
+log.model <- glm(MetabolicSyndrome~.-seqn,data2.train,family=binomial)
+log.pred <- predict(log.model,newdata=data2.test,type="response")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=ifelse(log.pred>0.4,1,0))
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.835
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.2112676
+
+# Full model
+# Adjust decision boundary to 0.3 to lower false negative
+log.model <- glm(MetabolicSyndrome~.-seqn,data2.train,family=binomial)
+log.pred <- predict(log.model,newdata=data2.test,type="response")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=ifelse(log.pred>0.3,1,0))
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.8133333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.1596244
+
+# Full model
+# Adjust decision boundary to 0.2 to lower false negative
+log.model <- glm(MetabolicSyndrome~.-seqn,data2.train,family=binomial)
+log.pred <- predict(log.model,newdata=data2.test,type="response")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=ifelse(log.pred>0.2,1,0))
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.785
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.1079812
+
+# Full model
+# Adjust decision boundary to 0.1 to lower false negative
+log.model <- glm(MetabolicSyndrome~.-seqn,data2.train,family=binomial)
+log.pred <- predict(log.model,newdata=data2.test,type="response")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=ifelse(log.pred>0.1,1,0))
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.7033333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.07511737
+
+# Model cleaned data
+# Full model
+log.model <- glm(MetabolicSyndrome~.-seqn,data5.train,family=binomial)
+summary(log.model)
+log.pred <- predict(log.model,newdata=data5.test,type="response")
+confusion.matrix <- table(Actual=data5.test$MetabolicSyndrome,Predicted=ifelse(log.pred>0.5,1,0))
+confusion.matrix
+log_accuracy <- sum(diag(confusion.matrix))/sum(confusion.matrix)
+log_accuracy
+# Accuracy is 0.8383333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.258216
+```
+
+### Linear Discriminant Analysis
+```{r}
+library(MASS)
+# Median cleaned data 
+# Full model
+LDA.model <- lda(MetabolicSyndrome~.-seqn,data2.train)
+LDA.model
+LDA.pred <- predict(LDA.model,data2.test)$class
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=LDA.pred)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.8366667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.2957746
+
+# Full model
+# Adjust decision boundary to 0.4 to lower false negative
+LDA.model <- lda(MetabolicSyndrome~.-seqn,data2.train)
+LDA.pred <- predict(LDA.model,data2.test)
+LDA.pred.adjusted <- as.numeric(LDA.pred$posterior[,"1"]>0.4)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=LDA.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.8316667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.2441315
+
+# Full model
+# Adjust decision boundary to 0.3 to lower false negative
+LDA.model <- lda(MetabolicSyndrome~.-seqn,data2.train)
+LDA.pred <- predict(LDA.model,data2.test)
+LDA.pred.adjusted <- as.numeric(LDA.pred$posterior[,"1"]>0.3)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=LDA.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.81
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.1877934
+
+# Full model
+# Adjust decision boundary to 0.2 to lower false negative
+LDA.model <- lda(MetabolicSyndrome~.-seqn,data2.train)
+LDA.pred <- predict(LDA.model,data2.test)
+LDA.pred.adjusted <- as.numeric(LDA.pred$posterior[,"1"]>0.2)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=LDA.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.7933333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.1220657
+
+# Full model
+# Adjust decision boundary to 0.1 to lower false negative
+LDA.model <- lda(MetabolicSyndrome~.-seqn,data2.train)
+LDA.pred <- predict(LDA.model,data2.test)
+LDA.pred.adjusted <- as.numeric(LDA.pred$posterior[,"1"]>0.1)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=LDA.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.6933333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.06103286
+```
+
+### Quadratic Discriminant Analysis
+```{r}
+# Median cleaned data 
+# Full model
+QDA.model <- qda(MetabolicSyndrome~.-seqn,data2.train)
+QDA.model
+QDA.pred <- predict(QDA.model,data2.test)$class
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=QDA.pred)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.75
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.5070423
+
+# Full model
+# Adjust decision boundary to 0.4 to lower false negative
+QDA.model <- qda(MetabolicSyndrome~.-seqn,data2.train)
+QDA.pred <- predict(QDA.model,data2.test)
+QDA.pred.adjusted <- as.numeric(QDA.pred$posterior[,"1"]>0.4)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=QDA.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.7516667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.4835681
+
+# Full model
+# Adjust decision boundary to 0.1 to lower false negative
+QDA.model <- qda(MetabolicSyndrome~.-seqn,data2.train)
+QDA.pred <- predict(QDA.model,data2.test)
+QDA.pred.adjusted <- as.numeric(QDA.pred$posterior[,"1"]>0.1)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=QDA.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.7716667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.2910798
+
+# Full model
+# Adjust decision boundary to 0.01 to lower false negative
+QDA.model <- qda(MetabolicSyndrome~.-seqn,data2.train)
+QDA.pred <- predict(QDA.model,data2.test)
+QDA.pred.adjusted <- as.numeric(QDA.pred$posterior[,"1"]>0.01)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=QDA.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.6983333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.09389671
+```
+
+### K-Nearest Neighbors
+```{r}
+library(class)
+set.seed(12345)
+# Median cleaned data
+# Reduced model: some categorical predictors removed
+# After testing several times, it turns out k=5 works the best. 
+train.X <- data2.train[, !(names(data2.train) %in% c("seqn","MetabolicSyndrome","Sex","Marital","Race"))]
+test.X <- data2.test[, !(names(data2.test) %in% c("seqn","MetabolicSyndrome","Sex","Marital","Race"))]
+KNN.pred <- knn(train.X,test.X,data2.train$MetabolicSyndrome,k=5)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=KNN.pred)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.82
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.2816901
+```
+
+### Naive Bayes
+```{r}
+library(e1071)
+# Median cleaned data 
+# Full model
+NB.model <- naiveBayes(MetabolicSyndrome~.-seqn,data2.train)
+NB.model
+NB.pred <- predict(NB.model,data2.test)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=NB.pred)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.8016667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.3849765
+
+# Full model
+# Adjust decision boundary to 0.3 to lower false negative
+NB.model <- naiveBayes(MetabolicSyndrome~.-seqn,data2.train)
+NB.pred <- predict(NB.model,data2.test,type="raw")
+NB.pred.adjusted <- as.numeric(NB.pred[,"1"]>0.3)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=NB.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.7966667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.314554
+
+# Full model
+# Adjust decision boundary to 0.1 to lower false negative
+NB.model <- naiveBayes(MetabolicSyndrome~.-seqn,data2.train)
+NB.pred <- predict(NB.model,data2.test,type="raw")
+NB.pred.adjusted <- as.numeric(NB.pred[,"1"]>0.1)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=NB.pred.adjusted)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.7966667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.1877934
+
+# Full model
+# Adjust decision boundary to 0.01 to lower false negative
+NB.model <- naiveBayes(MetabolicSyndrome~.-seqn,data2.train)
+NB.pred <- predict(NB.model,data2.test,type="raw")
+NB.pred.adjusted <- as.numeric(NB.pred[,"1"]>0.01)
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=NB.pred.adjusted)
+confusion.matrix
+NB_accuracy <- sum(diag(confusion.matrix))/sum(confusion.matrix)
+NB_accuracy
+# Accuracy is 0.6983333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.05164319
+```
+
+### Decision Tree 
+```{r}
+library(rpart)
+library(rpart.plot)
+# Median cleaned data 
+# Full model
+tree.model <- rpart(MetabolicSyndrome~.-seqn,data=data2.train,method="class")
+prp(tree.model,type=1,extra=1)
+tree.pred <- predict(tree.model,data2.test,type="class")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=tree.pred)
+confusion.matrix
+FDT_accuracy <- sum(diag(confusion.matrix))/sum(confusion.matrix)
+FDT_accuracy
+# Accuracy is 0.8483333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.1455399
+
+# Reduced model: BMI removed
+tree.model <- rpart(MetabolicSyndrome~.-seqn-BMI,data=data2.train,method="class")
+prp(tree.model,type=1,extra=1)
+tree.pred <- predict(tree.model,data2.test,type="class")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=tree.pred)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.8516667
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.1220657
+
+# Reduced model: more predictor removed until reach the best result
+tree.model <- rpart(MetabolicSyndrome~.-seqn-BMI-HDL-UrAlbCr,data=data2.train,method="class")
+prp(tree.model,type=1,extra=1)
+tree.pred <- predict(tree.model,data2.test,type="class")
+confusion.matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=tree.pred)
+confusion.matrix
+sum(diag(confusion.matrix))/sum(confusion.matrix)
+# Accuracy is 0.8633333
+confusion.matrix[2,1]/(confusion.matrix[2,1]+confusion.matrix[2,2])
+# False negative rate is 0.08920188
+```
+
+# Evaluation
+
+### Logisitic Regression Evaluation
+```{r}
+# Full model
+# Adjust decision boundary to 0.1 to lower false negative
+log_model <- glm(MetabolicSyndrome~.-seqn,data2.train,family=binomial)
+log_pred <- predict(log_model,newdata=data2.test,type="response")
+log_confusion_matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=ifelse(log_pred>0.1,1,0))
+log_confusion_matrix
+sum(diag(log_confusion_matrix))/sum(log_confusion_matrix)
+# Accuracy is 0.7033333
+log_confusion_matrix[2,1]/(log_confusion_matrix[2,1]+log_confusion_matrix[2,2])
+# False negative rate is 0.07511737
+```
+
+### Precision, Recall, and F1
+```{r}
+log_precision <- log_confusion_matrix[2,2]/(log_confusion_matrix[2,2] + log_confusion_matrix[1,2])
+log_precision
+# the precision is 0.5487465
+log_recall <- log_confusion_matrix[2,2]/(log_confusion_matrix[2,2] + log_confusion_matrix[2,1])
+log_recall
+# the recall is 0.9248826
+log_F1 <- (2 * log_recall * log_precision) / (log_recall + log_precision)
+log_F1
+# The F1 score is 0.6888112
+```
+
+### ROC Curve
+```{r}
+library(ROCR)
+log_ROC_predict <- prediction(log_pred, data2.test$MetabolicSyndrome)
+log_ROC_preformance <- performance(log_ROC_predict, 'tpr', 'fpr')
+plot(log_ROC_preformance, colorize = TRUE, text.adj = c(-0.2, 1.7), main = "Logisitic Regression ROC Curve")
+```
+
+### Naive Bayes Evaluation
+```{r}
+library(e1071)
+
+# Full model
+# Adjust decision boundary to 0.01 to lower false negative
+NB_model <- naiveBayes(MetabolicSyndrome~.-seqn,data2.train)
+NB_pred <- predict(NB_model,data2.test,type="raw")
+NB_pred_adjusted <- as.numeric(NB_pred[,"1"]>0.01)
+NB_confusion_matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=NB_pred_adjusted)
+NB_confusion_matrix
+sum(diag(NB_confusion_matrix))/sum(NB_confusion_matrix)
+# Accuracy is 0.6983333
+NB_confusion_matrix[2,1]/(NB_confusion_matrix[2,1] + NB_confusion_matrix[2,2])
+# False negative rate is 0.05164319
+```
+
+### Precision, Recall, and F1
+```{r}
+NB_precision <- NB_confusion_matrix[2,2]/(NB_confusion_matrix[2,2] + NB_confusion_matrix[1,2])
+NB_precision
+# the precision is 0.5430108
+NB_recall <- NB_confusion_matrix[2,2]/(NB_confusion_matrix[2,2] + NB_confusion_matrix[2,1])
+NB_recall
+# the recall is 0.9483568
+NB_F1 <- (2 * NB_recall * NB_precision) / (NB_recall + NB_precision)
+NB_F1
+# The F1 score is 0.6905983
+```
+
+### ROC Curve
+```{r}
+library(ROCR)
+NB_ROC_predict <- prediction(NB_pred_adjusted, data2.test$MetabolicSyndrome)
+NB_ROC_preformance <- performance(NB_ROC_predict, 'tpr', 'fpr')
+plot(NB_ROC_preformance, colorize = TRUE, text.adj = c(-0.2, 1.7), main = "Naive Bayes ROC Curve")
+```
+
+### Reduced Decision Tree Evaluation
+```{r}
+library(rpart)
+library(rpart.plot)
+
+# Reduced model: more predictor removed until reach the best result
+RDT_model <- rpart(MetabolicSyndrome~.-seqn-BMI-HDL-UrAlbCr,data=data2.train,method="class")
+prp(RDT_model,type=1,extra=1)
+RDT_pred <- predict(RDT_model,data2.test,type="class")
+RDT_confusion_matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=RDT_pred)
+RDT_confusion_matrix
+sum(diag(RDT_confusion_matrix))/sum(RDT_confusion_matrix)
+# Accuracy is 0.8633333
+RDT_confusion_matrix[2,1]/(RDT_confusion_matrix[2,1]+RDT_confusion_matrix[2,2])
+# False negative rate is 0.08920188
+```
+
+### Precision, Recall, and F1
+```{r}
+RDT_precision <- RDT_confusion_matrix[2,2]/(RDT_confusion_matrix[2,2] + RDT_confusion_matrix[1,2])
+RDT_precision
+# the precision is 0.7548638
+RDT_recall <- RDT_confusion_matrix[2,2]/(RDT_confusion_matrix[2,2] + RDT_confusion_matrix[2,1])
+RDT_recall
+# the recall is 0.9107981
+RDT_F1 <- (2 * RDT_recall * RDT_precision) / (RDT_recall + RDT_precision)
+RDT_F1
+# The F1 score is 0.8255319
+```
+
+### ROC Curve
+```{r}
+library(ROCR)
+RDT_pred <- predict(RDT_model,data2.test,type="prob")[,2]
+RDT_ROC_predict <- prediction(RDT_pred, data2.test$MetabolicSyndrome)
+RDT_ROC_preformance <- performance(RDT_ROC_predict, 'tpr', 'fpr')
+plot(RDT_ROC_preformance, colorize = TRUE, text.adj = c(-0.2, 1.7), main = "Reduced Decision Tree ROC Curve")
+```
+
+### Full Decision Tree Evaluation
+```{r}
+library(rpart)
+library(rpart.plot)
+
+# Reduced model: more predictor removed until reach the best result
+FDT_model <- rpart(MetabolicSyndrome~.-seqn,data=data2.train,method="class")
+prp(FDT_model,type=1,extra=1)
+FDT_pred <- predict(FDT_model,data2.test,type="class")
+FDT_confusion_matrix <- table(Actual=data2.test$MetabolicSyndrome,Predicted=FDT_pred)
+FDT_confusion_matrix
+sum(diag(FDT_confusion_matrix))/sum(FDT_confusion_matrix)
+# Accuracy is 0.84833
+FDT_confusion_matrix[2,1]/(FDT_confusion_matrix[2,1]+FDT_confusion_matrix[2,2])
+# False negative rate is 0.14554
+```
+
+### Precision, Recall, and F1
+```{r}
+FDT_precision <- FDT_confusion_matrix[2,2]/(FDT_confusion_matrix[2,2] + FDT_confusion_matrix[1,2])
+FDT_precision
+# the precision is 0.75207
+FDT_recall <- FDT_confusion_matrix[2,2]/(FDT_confusion_matrix[2,2] + FDT_confusion_matrix[2,1])
+FDT_recall
+# the recall is 0.85255
+FDT_F1 <- (2 * FDT_recall * FDT_precision) / (FDT_recall + FDT_precision)
+FDT_F1
+# The F1 score is 0.80
+```
+
+### ROC Curve
+```{r}
+library(ROCR)
+FDT_pred <- predict(FDT_model,data2.test,type="prob")[,2]
+FDT_ROC_predict <- prediction(FDT_pred, data2.test$MetabolicSyndrome)
+FDT_ROC_preformance <- performance(FDT_ROC_predict, 'tpr', 'fpr')
+plot(FDT_ROC_preformance, colorize = TRUE, text.adj = c(-0.2, 1.7), main = "Full Decision Tree ROC Curve")
+```
+
+# Further Visualization
+
+### Model Comparison Based on Metrics
+```{r}
+library(ggplot2)
+# Create a data frame with metrics corresponding to model names
+finalModel_metrics <- data.frame(
+  Model = c("Logistic Regression", "Naive Bayes", "Decision Tree"),
+  Accuracy = c(log_accuracy, NB_accuracy, FDT_accuracy),
+  Precision = c(log_precision, NB_precision, FDT_precision),
+  Recall = c(log_recall, NB_recall, FDT_recall),
+  F1_Score = c(log_F1, NB_F1, FDT_F1)
+)
+#review the data frame
+#str(finalModel_metrics)
+#head(finalModel_metrics)
+
+#reshaped for ggplot
+finalModel_metrics_shaped <- reshape2::melt(finalModel_metrics, id.vars = "Model")
+
+custom_colors <- c("Logistic Regression" = "#ebd9ab", "Naive Bayes" = "#6e8cce", "Decision Tree" = "#485d4a")
+
+# Create a bar plot with facet_wrap() to separate the values 
+ggplot(finalModel_metrics_shaped, aes(x = Model, y = value, fill = Model))+
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~variable, scales = "free_y") +
+  labs(title = "Model Performance Comparison",x = "Model", y = "Metric Value") +
+  theme_minimal() + scale_y_continuous(limits = c(0, 1.3)) + theme(axis.text.x = element_blank()) + scale_fill_manual(values = custom_colors)
+
+```
+
+### Model Lift Curve
+```{r}
+library(ROCR)
+library(e1071)
+
+#log lift curve
+log_pred <- predict(log_model, data2.test, type = "response")
+log_predict <- prediction(log_pred, data2.test$MetabolicSyndrome)
+log_lift_perf <- performance(log_predict, "lift", "rpp")
+plot(log_lift_perf, main = "Lift Curve (Log Regression)", colorize = TRUE)
+
+#FDT lift curve
+FDT_pred <- predict(FDT_model, data2.test, type = "prob")[, 1]
+FDT_predict <- prediction(FDT_pred, data2.test$MetabolicSyndrome)
+FDT_lift_perf <- performance(FDT_predict, "lift", "rpp")
+plot(FDT_lift_perf, main = "Lift Curve (Decision Tree)", colorize = TRUE)
+
+#NB lift curve
+NB_pred <- predict(NB_model, newdata = data2.test, type = "raw")
+NB_pred_positive <- NB_pred[,1]
+NB_predict <- prediction(NB_pred_positive, data2.test$MetabolicSyndrome)
+NB_lift_perf <- performance(NB_predict, "lift", "rpp")
+plot(NB_lift_perf, main = "Lift Curve (Naive Bayes)", colorize = TRUE)
+
+data2.test$MetabolicSyndrome <- as.factor(data2.test$MetabolicSyndrome)
+library(caret)
+library(lattice)
+combined_lift <- lift(MetabolicSyndrome ~ NB_pred_positive + FDT_pred + log_pred, data = data2.test)
+xyplot(combined_lift, auto.key = list(text = c("Naive Bayes", "Decision Tree", "Log Regression"), columns = 3), main = "Combined Lift Curve", colorize = TRUE)
+
+```
+
+### Visualizing Model Imbalance
+```{r}
+barplot(table(data2.test$MetabolicSyndrome), col = c("red", "blue"), main = "Class Distribution")
+
+#imbalance ratio should be close to one
+imbalance_ratio <- sum(data2$MetabolicSyndrome == 1) / sum(data2$MetabolicSyndrome == 0)
+imbalance_ratio
+#imbalance ratio of 0.52 shows imbalance in test data set
+#this may effect the interpretation of the lift curve above
+```
+
+### Examining Most Important Factors for Prediction
+```{r}
+# look at coefficients of log model to see variables influence on prediction
+summary(log_model)
+#from summary - age, sex, waistCirc, blood glucose, HDL, Triglycerides
+#pos correlation with MS - Age, WaistCirc, BloodGlucose, Triglycerides
+#neg correlation with MS - SexMale, HDL
+
+#variable importance for full decision tree
+printcp(FDT_model)
+#from decision tree plot - biggest determiners: blood glucose, BMI, HDL, Sex, Triglycerides, WaistCirc
+```
+
+### Visualize Attribute Importance for Logistic Regression, Decision Tree, and Naive Bayes
+```{r}
+# log regression
+log_coeffs <- coef(log_model)[-1]  # Exclude the intercept
+log_data <- data.frame(Variable = names(log_coeffs),
+                                       Estimate = log_coeffs)
+
+# plot coefficients on bar graph
+barplot_log_import <- ggplot(log_data, aes(x = reorder(Variable, Estimate), y = Estimate)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Logistic Regression Attribute Signifigance",
+       x = "Variable",
+       y = "Signifigance in Prediction") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+barplot_log_import
+
+
+#decision tree
+
+DT_importance <- varImp(FDT_model)
+DT_imp <- data.frame(Variable = rownames(DT_importance), Importance = DT_importance$Overall)
+
+#create bar graph
+barplot_DT_import <- ggplot(DT_imp, aes(x = reorder(Variable, Importance), y = Importance)) + geom_bar(stat = "identity", fill = "darkred") + 
+  labs(title = "Variable Importance (Decision Tree)", x = "Variable", y = "Importance") + theme_minimal() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+barplot_DT_import
+
+#naive bayes has conditional probabilities but doesn't work in the same way as the scoring of decision tree importance or logistic regression's coefficients - cannot be reported similarly
+```
+
+### Metabolics Syndrome Averages for Variables of Import
+```{r}
+library(dplyr)
+
+# function that creates a boxplot
+create_boxplot <- function(variable) {
+  ggplot(data, aes(x = MetabolicSyndrome, y = .data[[variable]], fill = MetabolicSyndrome)) +
+    geom_boxplot() +
+    labs(title = paste("Average", variable, "MS vs non_MS"),
+         x = "Metabolic Syndrome", y = variable) +
+    scale_fill_manual(values = c("#1f78b4", "#33a02c"), name = "Metabolic Syndrome") +
+    theme_minimal()
+}
+
+# Create box plots for each variable previously identified as important
+boxplot_age <- create_boxplot("Age")
+boxplot_waist_circ <- create_boxplot("WaistCirc")
+boxplot_blood_glucose <- create_boxplot("BloodGlucose")
+boxplot_hdl <- create_boxplot("HDL")
+boxplot_triglycerides <- create_boxplot("Triglycerides")
+
+# Arrange boxplots in a grid
+library(gridExtra)
+grid.arrange(boxplot_age, boxplot_waist_circ, boxplot_blood_glucose, boxplot_hdl, boxplot_triglycerides, ncol = 2)
+
+```
+
+### Interactive plot - Metabolic Syndrome Probability vs Important Variables
+```{r}
+library(plotly)
+library(e1071)
+library(dplyr)
+
+##BMI##
+data_for_plot <- data2 %>% select(BMI, MetabolicSyndrome)
+
+# Make predictions using naive bayes
+data_for_plot$Prediction <- predict(NB_model, data_for_plot, type = "raw")[, "1"]
+
+# Create an interactive plot using plotly
+plot_ly(data_for_plot, x = ~BMI, y = ~Prediction, color = ~MetabolicSyndrome, type = "scatter", mode = "markers") %>%
+  layout(title = "Naive Bayes: Probability of Metabolic Syndrome vs. BMI",
+         xaxis = list(title = "BMI"),
+         yaxis = list(title = "Probability of Metabolic Syndrome"),
+         showlegend = TRUE)
+
+##AGE##
+# Select the relevant variables for the plot
+data_for_plot <- data2 %>% select(Age, MetabolicSyndrome)
+
+# Make predictions using the Naive Bayes model
+data_for_plot$Prediction <- predict(NB_model, data_for_plot, type = "raw")[, "1"]
+
+# Create an interactive plot using plotly
+plot_ly(data_for_plot, x = ~Age, y = ~Prediction, color = ~MetabolicSyndrome, type = "scatter", mode = "markers") %>%
+  layout(title = "Naive Bayes: Probability of Metabolic Syndrome vs. Age",
+         xaxis = list(title = "Age"),
+         yaxis = list(title = "Probability of Metabolic Syndrome"),
+         showlegend = TRUE)
+
+##WaistCirc##
+# Select the relevant variables for the plot
+data_for_plot <- data2 %>% select(WaistCirc, MetabolicSyndrome)
+
+# Make predictions using the Naive Bayes model
+data_for_plot$Prediction <- predict(NB_model, data_for_plot, type = "raw")[, "1"]
+
+# Create an interactive plot using plotly
+plot_ly(data_for_plot, x = ~WaistCirc, y = ~Prediction, color = ~MetabolicSyndrome, type = "scatter", mode = "markers") %>%
+  layout(title = "Naive Bayes: Probability of Metabolic Syndrome vs. WaistCirc",
+         xaxis = list(title = "WaistCirc"),
+         yaxis = list(title = "Probability of Metabolic Syndrome"),
+         showlegend = TRUE)
+
+```
